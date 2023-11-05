@@ -1,51 +1,78 @@
-# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022)
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+import requests
 import streamlit as st
-from streamlit.logger import get_logger
+import pandas as pd
+import pymysql
+import streamlit.components.v1 as components
 
-LOGGER = get_logger(__name__)
+# Replace 'YOUR_BOT_TOKEN' with your bot's token
+BOT_TOKEN = st.secrets["BOT_TOKEN"]
 
-
-def run():
-    st.set_page_config(
-        page_title="Hello",
-        page_icon="👋",
-    )
-
-    st.write("# Welcome to Streamlit! 👋")
-
-    st.sidebar.success("Select a demo above.")
-
-    st.markdown(
-        """
-        Streamlit is an open-source app framework built specifically for
-        Machine Learning and Data Science projects.
-        **👈 Select a demo from the sidebar** to see some examples
-        of what Streamlit can do!
-        ### Want to learn more?
-        - Check out [streamlit.io](https://streamlit.io)
-        - Jump into our [documentation](https://docs.streamlit.io)
-        - Ask a question in our [community
-          forums](https://discuss.streamlit.io)
-        ### See more complex demos
-        - Use a neural net to [analyze the Udacity Self-driving Car Image
-          Dataset](https://github.com/streamlit/demo-self-driving)
-        - Explore a [New York City rideshare dataset](https://github.com/streamlit/demo-uber-nyc-pickups)
-    """
-    )
+# Database configuration
+db_config = {
+    "host": st.secrets["DB_HOST"],
+    "user": st.secrets["DB_USER"],
+    "password": st.secrets["DB_PWD"],
+    "database": st.secrets["DB_DB"]
+}
 
 
-if __name__ == "__main__":
-    run()
+
+# Function to retrieve user IDs and additional information from the database
+def get_user_data_from_db():
+    try:
+        conn = pymysql.connect(**db_config)
+        print(conn)
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT user_id, responsibility, responsibility_type FROM discord_users")
+            user_data = cursor.fetchall()
+        return user_data
+    except pymysql.Error as e:
+        st.warning(f"Failed to retrieve user data from the database. Error: {str(e)}")
+    finally:
+        conn.close()
+
+st.title('Discord User Info Table')
+
+# Retrieve user data from the database
+user_data_from_db = get_user_data_from_db()
+
+# Create an empty list to store user data
+user_data_list = []
+
+# Loop through the user data and fetch user information
+for user_data in user_data_from_db:
+    user_id, responsibility, responsibility_type = user_data
+
+    API_ENDPOINT = f'https://discord.com/api/v10/users/{user_id}'
+    headers = {'Authorization': f'Bot {BOT_TOKEN}'}
+
+    try:
+        response = requests.get(API_ENDPOINT, headers=headers)
+        if response.status_code == 200:
+            user_data = response.json()
+            avatar_url = f'https://cdn.discordapp.com/avatars/{user_data["id"]}/{user_data["avatar"]}.png'
+            username = user_data["username"]
+
+            user_data_list.append({
+                "Username": username,
+                "Avatar URL": avatar_url,
+                "Responsibility": responsibility,
+                "Responsibility Type": responsibility_type,
+            })
+        else:
+            st.warning(f"Failed to fetch user data for user ID {user_id}. Status code: {response.status_code}")
+    except Exception as e:
+        st.warning(f"An error occurred for user ID {user_id}: {str(e)}")
+
+# Display the user data in a Streamlit table with images
+if user_data_list:
+    user_df = pd.DataFrame(user_data_list)
+    st.data_editor(
+    user_df,
+    column_config={
+        "Avatar URL": st.column_config.ImageColumn(
+            "Profile Picture", width="medium", help="Discord Profile Picture"
+        )
+    },
+    hide_index=True,
+)
