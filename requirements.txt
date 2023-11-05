@@ -1,5 +1,5 @@
-altair
-numpy
+requests
 pandas
-pydeck
+pymysql
 streamlit
+
